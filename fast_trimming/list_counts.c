@@ -139,8 +139,8 @@ void print_list( list_count **lc ) {
 void print_fasta( list_count **lc, FILE *output ) {
   seq_count *temp = (*lc)->head;
   while( temp != NULL ) {
-    fprintf( output, "\n> %d", temp->count );
-    fprintf( output, "\n%s", temp->seq );
+    fprintf( output, "> %d\n", temp->count );
+    fprintf( output, "%s\n", temp->seq );
     temp=temp->next;
   }
   fclose( output );
@@ -149,7 +149,7 @@ void print_fasta( list_count **lc, FILE *output ) {
 void print_dat( list_count **lc, FILE *output ) {
   seq_count *temp = (*lc)->head;
   while( temp != NULL ) {
-    fprintf( output, "\n%s %d", temp->seq, temp->count );
+    fprintf( output, "%s %d\n", temp->seq, temp->count );
     temp=temp->next;
   }
   fclose( output );

@@ -1,11 +1,20 @@
 #!/bin/bash
 
+
+# Parallel usage:
+# parallel --eta -j 4 fast_trimming.sh -z -t 0.1 -is 21 -a1 <adapter1> -a2 <adapter2> -i {} -jn {#} ::: *.fastq.gz
+
+
 # ARGUMENT PARSING
 while [[ "$#" -gt 0 ]]; do
     case $1 in
-	-i|--input) input=$2; shift ;;
-	-h|--help) help=1 ;;
+	-i|--input) input=$2; shift ;;	
 	-t|--threshold) threshold=$2; shift ;;
+	-a1|--adapter1) adapter1=$2; shift ;;
+	-a2|--adapter2) adapter2=$2; shift ;;
+	-is|--insertSize) insertSize=$2; shift ;;
+	-jn|--jobNumber) jobNumber=$2; shift ;;
+	-h|--help) help=1 ;;
 	-z|--summary) summary=1 ;;
         -s|--silent) silent=1 ;;
 	-k|--keep) keep=1 ;;
@@ -14,11 +23,33 @@ while [[ "$#" -gt 0 ]]; do
     shift
 done
 
+# ------------------------------------------------
+# Pushing all stdout and stderr to the log file:
+LOGFILE=${input%.fastq.gz}"-trimming.log"
+
+# Redirect stdout and stderr
+exec > >(tee -a "$LOGFILE") \
+     2> >(tee -a "$LOGFILE" >&2)
+# ------------------------------------------------
+
 if [[ -z ${input} ]]; then
     printf "No input was provided!\nExiting program\n\n" > /dev/tty
     exit 1;
 fi
-printf "\ninput = %s\n" ${input} > /dev/tty
+if [[ -z ${adapter1} ]]; then
+    printf "No sequence was provided for adapter 1!\nExiting program\n\n" > /dev/tty
+    exit 1;
+fi
+if [[ -z ${adapter2} ]]; then
+    printf "No sequence was provided for adapter 2!\nExiting program\n\n" > /dev/tty
+    exit 1;
+fi
+if [[ -z ${insertSize} ]]; then
+    printf "No insert size was provided!\nExiting program\n\n" > /dev/tty
+    exit 1;
+fi
+
+printf "\n\tinput = %s\n\tadapter 5 = %s\n\tadapter 3 = %s\n\tinsert size = %d\n" ${input} ${adapter1} ${adapter2} ${insertSize} > /dev/tty
 
 # printf "\nThreshold = %s\n" ${threshold} > ${stream}
 
@@ -42,9 +73,11 @@ Options:
 	-i --input	fastq file to process.
 	-o --output	name of the file in which the output should be saved. 
 	-h --help	Show this information.
-	-s --silent	Disable all messages.
 	-k --keep	Keep all intermediary files generated during runtime.
 	-t --threshold	Define the expected error threshold above which sequences are discarded. By default it is set to 0.01
+	-a1 --adapter1	Define the 5` sequence around the sequence of interest 
+	-a2 --adapter2	Define the 3` sequence around the sequence of interest 
+	-is --insertSize       Define the size of the insert or sequence of interest that you expect: only sequences of this exact size will be kept
 ---------------------------------------------------------------------------
 For any questions or issues contact: timothe[dot]vm[at]posteo[dot]net
 ---------------------------------------------------------------------------
@@ -52,11 +85,43 @@ EOF
     exit 0;
 fi
 		   
-if [[ -n ${silent} && $silent -eq 1 ]]; then 
-    stream=/dev/null
-else
-    stream=/dev/tty
-fi
+# if [[ -n ${silent} && $silent -eq 1 ]]; then 
+#     stream=/dev/null
+# else
+#     stream=/dev/tty
+# fi
+
+############################################################
+# EXPORTING all the processing information to a corresponding
+# json file to document how the trimming was performed
+############################################################
+# --------------------------------------
+# INITIATING the variables and their values to be passed
+# to jq:
+DATE=$(date -I)
+FOLDER=$(pwd)
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+SUMMARY="${input%.fastq.gz}."summary
+COUNTS="${input%.fastq.gz}."counts
+# --------------------------------------
+# CALLING jq to create the json file:
+jq -n \
+   --arg script "$0" \
+   --arg jobNumber "$jobNumber" \
+   --arg adapter1 "$adapter1" \
+   --arg adapter2 "$adapter2" \
+   --arg path "$FOLDER" \
+   --arg scriptPath "$SCRIPT_DIR" \
+   --arg input "$input" \
+   --arg summary "$SUMMARY" \
+   --arg logFile "$LOGFILE" \
+   --arg counts "$COUNTS" \
+   --arg date "$DATE" \
+   --arg name "vsearch" \
+   --arg threshold "$threshold" \
+   --arg insertSize "$insertSize" \
+   '{ main: { script: $script, jobNumber: $jobNumber, path: $scriptPath, input: $input, path: $path, adapter1: $adapter1, adapter2: $adapter2, insertSize: $insertSize, threshold: $threshold, summary: $summary, counts: $counts, logFile: $logFile, date: $date }}' > ${input%.fastq.gz}"-trimming.json"
+############################################################
 
 ####################################################################################
 # Description of cutadapt options used in this script
@@ -73,20 +138,33 @@ fi
 # --max-n X : 
 ##################################################
 
+
 if [[ -n ${summary} && $summary -eq 1 ]]; then
     # # COUNTING THE TOTAL NUMBER OF READS IN THE FILE
-    total=$(wc -l ${input} | awk '{print $1}')
+    total=$(zcat ${input} | wc -l | awk '{print $1}')
     total=$(($total/4))
     # # WRITING THE INFORMATION TO SUMMARY FILE
-    printf "native_sequence %d\n" $total > "${input}."summary.out
+    printf "native_sequence %d\n" $total > "${input%.fastq.gz}."summary
 fi
 
 # TRIMMING BOTH LINKED ADPATERS WITH NO INDELS AND ONLY IF THEY ARE EXACTLY MATCHED (length=10 && -O=10).
-cutadapt --cores=4 -e 1 -O 10 --no-indels --action=trim --untrimmed-output untrimmed_.fastq -g GAGAGGCAAC...CGCCAAGCAG -o Fwd_.fastq ${input} > ${stream}
+# cutadapt --cores=24 --cores=24 -e 0.2 -O 10 --no-indels --action=trim --untrimmed-output untrimmed_.fastq -g GAGCACCGGT...GGCTTAAGTT -o Fwd_.fastq ${input}
+# Try sequences further away from the 7mer
+cutadapt --cores=24 -e 0.2 -O 10 --no-indels --action=trim --untrimmed-output untrimmed_${jobNumber}.fastq -g ${adapter1}...${adapter2} -o Fwd_${jobNumber}.fastq ${input}
+
+# cutadapt possible option: --cores=24 
+
+# CAACCAGAGC...TCCACCACTG
+
+rc_a1=$(comp_dna.sh ${adapter1} | rev)
+rc_a2=$(comp_dna.sh ${adapter2} | rev)
 
 # TAKING THE READS FOR WHICH ADAPTERS SEQUENCES WERE NOT MATCHED AND TRYING TO MATCH THE COMPLEMENTARY SEQUENCES FOR BOTH ADAPTERS.
 # UNTRIMMED SEQUENCES ARE DISCARDED.
-cutadapt --cores=4 -e 1 -O 10 --no-indels --action=trim --discard-untrimmed -g CTGCTTGGCG...GTTGCCTCTC -o Rev_.fastq ./untrimmed_.fastq > ${stream}
+# cutadapt --cores=24 --cores=24 -e 0.2 -O 10 --no-indels --action=trim --discard-untrimmed -g AACTTAAGCC...ACCGGTGCTC -o Rev_.fastq ./untrimmed_.fastq
+# Try sequences further away from the 7mer
+# cutadapt --cores=24 --cores=24 -e 0.2 -O 10 --no-indels --action=trim --discard-untrimmed -g CAGTGGTGGA...GAGCACCGGT -o Rev_.fastq ./untrimmed_.fastq
+cutadapt --cores=24 -e 0.2 -O 10 --no-indels --action=trim --discard-untrimmed -g ${rc_a2}...${rc_a1} -o Rev_${jobNumber}.fastq ./untrimmed_${jobNumber}.fastq
 
 # REVERSES AND THEN OBTAINS THE COMPLEMENTARY
 #  SEQUENCE FROM THE INPUT SEQUENCE
@@ -96,104 +174,101 @@ cutadapt --cores=4 -e 1 -O 10 --no-indels --action=trim --discard-untrimmed -g C
 #  FORWARD ONES WITHOUT ANY PROBLEMS.
 # seqkit seq -r -p Rev_.fastq -o Rev_RC.fastq
 # Same command, but removes the warning:
-seqkit --seq-type dna seq -r -p Rev_.fastq -o Rev_RC.fastq
+seqkit --seq-type dna seq -r -p Rev_${jobNumber}.fastq -o Rev_RC_${jobNumber}.fastq
 
 # MERGES EVERYTHING INTO A SINGLE FILE
-cat Fwd_.fastq Rev_RC.fastq > data.fastq
+cat Fwd_${jobNumber}.fastq Rev_RC_${jobNumber}.fastq > data_${jobNumber}.fastq
 
 if [[ -n ${summary} && $summary -eq 1 ]]; then
     # # COUNTING NUMBER OF TRIMMED SEQUENCES
-    trimmed=$(wc -l data.fastq | awk '{print $1}')
+    trimmed=$(wc -l data_${jobNumber}.fastq | awk '{print $1}')
     trimmed=$(($trimmed/4))
     # # WRITING THE INFORMATION TO SUMMARY FILE
-    printf "trimmed_sequence %d\n" $trimmed >> "${input}."summary.out
+    printf "trimmed_sequence %d\n" $trimmed >> "${input%.fastq.gz}."summary
 fi
 
-# INSURES TO KEEP ONLY SEQUENCES OF EXACTLY 30 BASES (max=min=30)
-cutadapt --cores=4 --minimum-length 30 -o noless30.fastq data.fastq > ${stream}
-cutadapt --cores=4 --maximum-length 30 -o data30.fastq noless30.fastq > ${stream}
+# INSURES TO KEEP ONLY SEQUENCES OF EXACTLY THE NUMBER OF BASES
+# GIVEN BY THE VARIABLE insertSize (max=min=insertSize)
+cutadapt --cores=24 --minimum-length ${insertSize} -o minSize_${jobNumber}.fastq data_${jobNumber}.fastq
+cutadapt --cores=24 --maximum-length ${insertSize} -o data_insertSize_${jobNumber}.fastq minSize_${jobNumber}.fastq
 
 if [[ -n ${summary} && $summary -eq 1 ]]; then
     # # COUNTING NUMBER OF TRIMMED SEQUENCES
-    trente=$(wc -l data30.fastq | awk '{print $1}')
-    trente=$(($trente/4))
+    size=$(wc -l data_insertSize_${jobNumber}.fastq | awk '{print $1}')
+    size=$(($size/4))
     # # WRITING THE INFORMATION TO SUMMARY FILE
-    printf "30bp_sequence %d\n" $trente >> "${input}."summary.out
+    printf "%dbp_sequence %d\n" $insertSize $size >> "${input%.fastq.gz}."summary
 fi
 
 # REMOVES ALL THE 'N' NUCLEOTIDE, I.E. THE ONES THAT HAVE AMBIGUOUS
 #  IDENTITIES IN THE SEQUENCE
-cutadapt --cores=4 --max-n 0 -o data10adapt.fastq data30.fastq > ${stream}
+cutadapt --cores=24 --max-n 0 -o data_no-ambiguous-na_${jobNumber}.fastq data_insertSize_${jobNumber}.fastq
 
 
 # ------------------------------------------------------------------------------
-
-
-# OUTPUTTING THE EXPECTED ERROR FOR EACH READ :: DEBUGGING
-# vsearch --fastq_filter data_10adapt.fastq --fastq_ascii 33 --eeout --fastaout data_10adapt_errors.fasta > ${stream}
-
 # QUALITY FILTER
-# DISCARDING ALL THE READS WITH AN EXPECTED ERROR GREATER OR EQUAL TO 0.01
-vsearch --fastq_filter data10adapt.fastq --eeout --fastq_ascii 33 --fastq_maxee $threshold --fastaout data10adapt_filtered.fasta > ${stream}
+# DISCARDING ALL THE READS WITH AN EXPECTED ERROR GREATER OR EQUAL TO 0.1
+vsearch --fastq_filter data_no-ambiguous-na_${jobNumber}.fastq --eeout --fastq_ascii 33 --fastq_maxee $threshold --fastaout data_filtered_${jobNumber}.fasta
+
 
 if [[ -n ${summary} && $summary -eq 1 ]]; then
-    quality=$(wc -l data10adapt_filtered.fasta | awk '{print $1}')
+    quality=$(wc -l data_filtered_${jobNumber}.fasta | awk '{print $1}')
     quality=$(($quality/2))
-    printf "Qthreshold %d\n" $quality >> "${input}."summary.out
+    printf "Qthreshold %d\n" $quality >> "${input%.fastq.gz}."summary
 fi
+
+
+# awk '{if(NR%2==0){print substr($0,7,21)}else{print $0}}' data_filtered.fasta > data_filtered-cropped.fasta
+# awk '{if(NR%2==0){print substr($0,7,21)}else{print $0}}' data_filtered.fasta > "${input%.fastq}."fasta
+
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 # TRANSLATING THE READS FROM DNA TO AMINO ACIDS
-seqkit translate --allow-unknown-codon -f 1 data10adapt_filtered.fasta > AA_filtered.fasta
+seqkit translate --allow-unknown-codon -f 1 data_filtered_${jobNumber}.fasta > AA_filtered_${jobNumber}.fasta
 
-# REMOVING THE HEADERS IN THE FASTA FILE
-# awk '!/>/{print $0}' AA_filtered.fasta > AA_filtered.seq
 
 # DISCARDING ALL THE READS CONTAINING A STOP CODON
-awk '{if(NR%2==0){if($0!~/\*/){print header "\n" $0}}else{header=$0}}' AA_filtered.fasta > AA_filtered-nostop.fasta
+awk '{if(NR%2==0){if($0!~/\*/){print header "\n" $0}}else{header=$0}}' AA_filtered_${jobNumber}.fasta > AA_filtered-nostop_${jobNumber}.fasta
 
 if [[ -n ${summary} && $summary -eq 1 ]]; then
-    dixmer=$(wc -l data10adapt_filtered.fasta | awk '{print $1}')
+    dixmer=$(wc -l AA_filtered-nostop_${jobNumber}.fasta | awk '{print $1}')
     dixmer=$(($dixmer/2))
-    printf "Qthreshold %d\n" $dixmer >> "${input}."summary.out
+    printf "stop_codon_filter %d\n" $dixmer >> "${input%.fastq.gz}."summary
 fi
-
-# TRIMMING THE PROTEIN SEQUENCE
-# REMOVING THE LINKER AMINO ACIDS ON EACH SIDE OF THE SEQUENCE.
-awk '{if(NR%2==0){print substr($0,3,7)}else{print $0}}' AA_filtered-nostop.fasta > AA_filtered-nostop-cropped.fasta
 
 # COLLAPSING READS:
 # COUNTING THE FREQUENCY OF EACH SEQUENCE AND SAVING THE COUNTS
-./colps AA_filtered-nostop-cropped.fasta AA_filtered-nostop-cropped-collapsed.fasta
+colps AA_filtered-nostop_${jobNumber}.fasta ${input/.fastq.gz/.counts}
 
 if [[ -n ${summary} && $summary -eq 1 ]]; then
-    septmer=$(awk 'NR>1{sum+=$2}END{print sum}' AA_filtered-nostop-cropped-collapsed.fasta)
-    printf "7mer %d\n" $septmer >> "${input}."summary.out
+    septmer=$(awk 'NR>1{sum+=$2}END{print sum}' ${input/.fastq.gz/.counts})
+    printf "7mer %d\n" $septmer >> "${input%.fastq.gz}."summary
 fi
 
 # Graphing the results 
 # gnuplot -p plot.scores.gp ; display time_scores.hist.png
 
 if [[ -n ${keep} && $keep -eq 1 ]]; then 
-    printf "\nAll intermediary files were kept in the local folder" > ${stream}
+    printf "\nAll intermediary files were kept in the local folder"
 else
-    rm untrimmed_.fastq 
-    rm Fwd_.fastq
-    rm Rev_.fastq
-    rm Rev_RC.fastq
-    rm noless30.fastq
-    rm data.fastq
-    rm data30.fastq
-    rm data10adapt.fastq
-    rm data10adapt_filtered.fasta
-    rm AA_filtered.fasta
-    rm AA_filtered-nostop.fasta
-    rm AA_filtered-nostop-cropped.fasta
-    printf "\nAll intermediary files were removed" > ${stream}
+    rm untrimmed_${jobNumber}.fastq 
+    rm Fwd_${jobNumber}.fastq
+    rm Rev_${jobNumber}.fastq
+    rm Rev_RC_${jobNumber}.fastq
+    rm data_${jobNumber}.fastq
+    rm data_insertSize_${jobNumber}.fastq
+    rm minSize_${jobNumber}.fastq
+    rm data_no-ambiguous-na_${jobNumber}.fastq
+    rm data_filtered_${jobNumber}.fasta
+    rm AA_filtered_${jobNumber}.fasta
+    rm AA_filtered-nostop_${jobNumber}.fasta
+    printf "\nAll intermediary files were removed"
 fi
 
-printf "#----------------------------------------------------#" > ${stream}
-printf "" > ${stream}
-printf "           DONE!" > ${stream}
-printf "" > ${stream}
-
-
+printf "#----------------------------------------------------#"
+printf ""
+printf "           DONE!"
+printf ""
