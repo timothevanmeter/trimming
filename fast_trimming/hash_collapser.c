@@ -9,11 +9,11 @@
 
 /* USAGE: */
 /* COMPILATION: */
-/* gcc -Wall -pedantic -o colps hash_collapser.c list_counts.c ht.c -lm */
+/* gcc -Wall -pedantic -o hash_collapser.o hash_collapser.c list_counts.c ht.c -lm */
 /* COMPILATION FOR PERFORMANCE ANALYSIS: */
-/* gcc -Wall -pedantic -o colps hash_collapser.c list_counts.c ht.c -g -pg -lm */
+/* gcc -Wall -pedantic -o hash_collapser.o hash_collapser.c list_counts.c ht.c -g -pg -lm */
 /* EXECUTION: */
-/* ./colps <fastq/fasta_file> <output_file_name> */
+/* ./hash_collapser.o <fastq/fasta_file> <output_file_name> */
 
 
 KSEQ_INIT(int, read)

@@ -60,6 +60,9 @@ sudo make install
 
 #JQ
 sudo apt install jq
+
+#HASH COLLAPSER
+gcc -Wall -pedantic -o hash_collapser.o hash_collapser.c list_counts.c ht.c -lm
 ```
 
 ---
@@ -68,7 +71,7 @@ sudo apt install jq
 ### Usage
 
 
-This script processes a `.fastq` or `.fastq.gz` file and ouptus a `.counts` file listing, in decreasing order, the unique sequence variants and their counts.\
+This script processes a `.fastq` or `.fastq.gz` file and outputs a `.counts` file listing, in decreasing order, the unique sequence variants and their counts.\
 It can be called from the command line as follows:
 
 
@@ -104,3 +107,49 @@ This command expects that all the files to be processed are in the current folde
 parallel --eta -j 4 fast_trimming.sh -z -t 0.1 -is 21 -a1 <adapter1> -a2 <adapter2> -i {} -jn {#} ::: *.fastq.gz
 ```
 The number of concurrent job numbers can be increased (here 4 as indicated by `-j 4`), but remember that cutadapt is also distributing its load across CPUs which is controlled by the `--cores=<number_of_cores_used>` option.
+
+
+### Testing
+
+
+#### Downloading test data
+```
+curl "ftp.sra.ebi.ac.uk/vol1/fastq/SRR112/037/SRR11262637/SRR11262637.fastq.gz" -o test-data.fastq.gz \
+gzip -d test-data.fastq.gz \
+./subsample_alignment.sh test-data.fastq
+```
+
+
+#### Finding the constant sequences to trim
+
+
+##### Looking at the MSA
+
+```./subsample_alignment.sh test-data.fastq```
+Visualize the resulting MSA: test-data_sub1000.align, find the constant flanking regions on each side of the insert and estimate the length of the insert.
+
+
+##### Producing a logo plot from the MSA
+
+```
+awk 'NR==1{print $0;next}$0~/^>/{printf "\n%s\n", $0} $0!~/^>/{printf "%s", $0}END{printf "\n"}' *.align > MSA.fa
+```
+Setup the logo_plot repository
+```
+git clone "https://github.com/timothevanmeter/logo_plot.git"
+cd logo_plot
+make compile
+
+# If the cairo libraries are not yet installed you can install them:
+sudo apt-get install libcairo2-dev
+
+# Add to PATH
+
+consensus_seq.o MSA.fa freq-mat.csv
+make_logo.o freq-mat.csv logo-plot.png
+```
+
+
+#### Performing the trimming
+
+fast_trimming.sh -z -t 0.1 -is 21 -a1 GAGTGCCCAA -a2 GCACAGGCGC -i test-data.fastq
