@@ -152,4 +152,4 @@ make_logo.o freq-mat.csv logo-plot.png
 
 #### Performing the trimming
 
-fast_trimming.sh -z -t 0.1 -is 21 -a1 GAGTGCCCAA -a2 GCACAGGCGC -i test-data.fastq
+```fast_trimming.sh -z -t 0.1 -is 21 -a1 GAGTGCCCAA -a2 GCACAGGCGC -i test-data.fastq```
