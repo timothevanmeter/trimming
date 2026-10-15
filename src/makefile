@@ -44,7 +44,7 @@ RUN_FILES  ?= data_test/T4.counts data_test/T6.counts
 RUN_OUTPUT ?= output_test
 
 run: concatenate
-	./concatenate_tables -o $(RUN_OUTPUT) $(RUN_FILES)
+	./concatenate_tables.o -o $(RUN_OUTPUT) $(RUN_FILES)
 
 # test:
 # 	$(PY) validate.py $(RUN_OUTPUT).csv $(RUN_FILES)
