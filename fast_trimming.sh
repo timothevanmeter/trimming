@@ -25,7 +25,9 @@ done
 
 # ------------------------------------------------
 # Pushing all stdout and stderr to the log file:
-LOGFILE=${input%.fastq.gz}"-trimming.log"
+# Strips .gz then .fastq so plain and compressed inputs give the same name
+LOGFILE=${input%.gz}
+LOGFILE=${LOGFILE%.fastq}"-trimming.log"
 
 # Redirect stdout and stderr
 exec > >(tee -a "$LOGFILE") \
@@ -166,29 +168,18 @@ fi
 # Try sequences further away from the 7mer
 cutadapt --cores=24 -e 0.2 -O 10 --no-indels --action=trim --untrimmed-output untrimmed_${jobNumber}.fastq -g ${adapter1}...${adapter2} -o Fwd_${jobNumber}.fastq ${input}
 
-# cutadapt possible option: --cores=24 
-
-# CAACCAGAGC...TCCACCACTG
-
 rc_a1=$(comp_dna.sh ${adapter1} | rev)
 rc_a2=$(comp_dna.sh ${adapter2} | rev)
 
 # TAKING THE READS FOR WHICH ADAPTERS SEQUENCES WERE NOT MATCHED AND TRYING TO MATCH THE COMPLEMENTARY SEQUENCES FOR BOTH ADAPTERS.
 # UNTRIMMED SEQUENCES ARE DISCARDED.
-# cutadapt --cores=24 --cores=24 -e 0.2 -O 10 --no-indels --action=trim --discard-untrimmed -g AACTTAAGCC...ACCGGTGCTC -o Rev_.fastq ./untrimmed_.fastq
-# Try sequences further away from the 7mer
-# cutadapt --cores=24 --cores=24 -e 0.2 -O 10 --no-indels --action=trim --discard-untrimmed -g CAGTGGTGGA...GAGCACCGGT -o Rev_.fastq ./untrimmed_.fastq
 cutadapt --cores=24 -e 0.2 -O 10 --no-indels --action=trim --discard-untrimmed -g ${rc_a2}...${rc_a1} -o Rev_${jobNumber}.fastq ./untrimmed_${jobNumber}.fastq
 
 # REVERSES AND THEN OBTAINS THE COMPLEMENTARY
 #  SEQUENCE FROM THE INPUT SEQUENCE
-# -r : inverses the sequence 5'===>3' ---> 3'===>5'
-# -p : obtains the complementary sequence ATGCA ---> TACGT
 # THIS WAY THE OUTPUTTED SEQUENCES CAN BE MERGED WITH THE
 #  FORWARD ONES WITHOUT ANY PROBLEMS.
-# seqkit seq -r -p Rev_.fastq -o Rev_RC.fastq
-# Same command, but removes the warning:
-seqkit --seq-type dna seq -r -p Rev_${jobNumber}.fastq -o Rev_RC_${jobNumber}.fastq
+vsearch --fastx_revcomp Rev_${jobNumber}.fastq -fastqout Rev_RC_${jobNumber}.fastq
 
 # MERGES EVERYTHING INTO A SINGLE FILE
 cat Fwd_${jobNumber}.fastq Rev_RC_${jobNumber}.fastq > data_${jobNumber}.fastq
@@ -218,12 +209,10 @@ fi
 # I.E. THE ONES THAT HAVE AMBIGUOUS IDENTITIES IN THE SEQUENCE
 cutadapt --cores=24 --max-n 0 -o data_no-ambiguous-na_${jobNumber}.fastq data_insertSize_${jobNumber}.fastq
 
-
 # ------------------------------------------------------------------------------
 # QUALITY FILTER
 # DISCARDING ALL THE READS WITH AN EXPECTED ERROR GREATER OR EQUAL TO 0.1
 vsearch --fastq_filter data_no-ambiguous-na_${jobNumber}.fastq --eeout --fastq_ascii 33 --fastq_maxee $threshold --fastaout data_filtered_${jobNumber}.fasta
-
 
 if [[ -n ${summary} && $summary -eq 1 ]]; then
     quality=$(wc -l data_filtered_${jobNumber}.fasta | awk '{print $1}')
@@ -231,18 +220,14 @@ if [[ -n ${summary} && $summary -eq 1 ]]; then
     printf "Qthreshold %d\n" $quality >> "${output}.summary"
 fi
 
-# CROPPING THE SEQUENCE: NO NEED IF THE CONSTANT SEQUENCES ARE DIRECTLY
-# NEIGHBORING THE SEQUENCE OF INTEREST
-# awk '{if(NR%2==0){print substr($0,7,21)}else{print $0}}' data_filtered.fasta > data_filtered-cropped.fasta
-
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 # ------------------------------------------------------------------------------
 
 # TRANSLATING THE READS FROM DNA TO AMINO ACIDS
-seqkit translate --allow-unknown-codon -f 1 data_filtered_${jobNumber}.fasta > AA_filtered_${jobNumber}.fasta
-
+# seqkit translate --allow-unknown-codon -f 1 data_filtered_${jobNumber}.fasta > AA_filtered_${jobNumber}.fasta
+translate data_filtered_${jobNumber}.fasta AA_filtered_${jobNumber}.fasta
 
 # DISCARDING ALL THE READS CONTAINING A STOP CODON
 awk '{if(NR%2==0){if($0!~/\*/){print header "\n" $0}}else{header=$0}}' AA_filtered_${jobNumber}.fasta > AA_filtered-nostop_${jobNumber}.fasta
@@ -255,10 +240,10 @@ fi
 
 # COLLAPSING READS:
 # COUNTING THE FREQUENCY OF EACH SEQUENCE AND SAVING THE COUNTS
-hash_collapser.o AA_filtered-nostop_${jobNumber}.fasta "${output}.counts"
+hash_collapser AA_filtered-nostop_${jobNumber}.fasta "${output}.counts"
 
 if [[ -n ${summary} && $summary -eq 1 ]]; then
-    septmer=$(awk 'NR>1{sum+=$2}END{print sum}' "${output}.counts")
+    septmer=$(awk '{sum+=$2}END{print sum}' "${output}.counts")
     printf "7mer %d\n" $septmer >> "${output}.summary"
 fi
 

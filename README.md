@@ -94,6 +94,9 @@ Options:
 	`-z --summary`	       Produce a summary file with the number of sequences kept at each filtering step\
 	`-s --silent`	       Run silently without any messages
 
+#### Testing
+
+The included test file, test-data.fastq.gz, is a subsample of the publicly available dataset: SRR11262654 (https://www.ncbi.nlm.nih.gov/Traces/study/?acc=SRR11262654&o=acc_s%3Aa).
 
 
 #### Parallel processing
@@ -104,3 +107,13 @@ This command expects that all the files to be processed are in the current folde
 parallel --eta -j 4 fast_trimming.sh -z -t 0.1 -is 21 -a1 <adapter1> -a2 <adapter2> -i {} -jn {#} ::: *.fastq.gz
 ```
 The number of concurrent job numbers can be increased (here 4 as indicated by `-j 4`), but remember that cutadapt is also distributing its load across CPUs which is controlled by the `--cores=<number_of_cores_used>` option.
+---
+
+
+### License
+
+
+This project is licensed under the GNU General Public License v3.0 or later, see [LICENSE](LICENSE).\
+It includes third-party code under the MIT License, whose copyright notices are kept in the files themselves:
+- `src/kseq.h` (Heng Li, Genome Research Ltd)
+- `src/ht.c`, `src/ht.h` and the derived `src/ht_array_DYNAMIC.c` and `src/ht_array_DYNAMIC.h` ([Ben Hoyt](https://github.com/benhoyt/ht), see `src/LICENSE-ht.txt`)

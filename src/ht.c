@@ -1,4 +1,5 @@
-// Simple hash table implemented in C.
+// Based on ht by Ben Hoyt (https://github.com/benhoyt/ht),
+// MIT License, Copyright (c) 2021 Ben Hoyt: see src/LICENSE-ht.txt
 
 #include "ht.h"
 

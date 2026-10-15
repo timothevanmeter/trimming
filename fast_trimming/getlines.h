@@ -1,1 +1,0 @@
-int getlines(char * filepath);
