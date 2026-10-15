@@ -16,14 +16,17 @@
 
 (define %source-dir (dirname (current-filename)))
 
-;; Only take the scripts and src/, never the sequencing data next to them.
+;; Only take the scripts, src/ and the test data, never other
+;; sequencing data or outputs lying next to them.
 (define (source-file? file stat)
   (let ((name (basename file)))
     (or (eq? (stat:type stat) 'directory)
         (string-suffix? ".c" name)
         (string-suffix? ".h" name)
         (string-suffix? ".sh" name)
-        (string=? "makefile" name))))
+        (string=? "makefile" name)
+        (string=? "test-data.fastq.gz" name)
+        (string=? "test-data.counts.orig" name))))
 
 (package
   (name "fast-trimming")
@@ -34,7 +37,6 @@
   (build-system gnu-build-system)
   (arguments
    (list
-    #:tests? #f
     #:make-flags #~(list "CC=gcc" (string-append "PREFIX=" #$output))
     #:phases
     #~(modify-phases %standard-phases
@@ -56,7 +58,25 @@
                                              inputs (string-append "bin/" cmd))))
                                  '("cutadapt" "vsearch" "jq" "awk" "rev"
                                    "zcat" "tee" "wc" "date"))))))
-               '("fast_trimming.sh" "comp_dna.sh"))))))))
+               '("fast_trimming.sh" "comp_dna.sh")))))
+        ;; The pipeline can only be tested once installed, wrapped and
+        ;; its shebangs patched, so the test runs after install instead
+        ;; of before it.
+        (delete 'check)
+        (add-after 'patch-shebangs 'check
+          ;; Runs the installed pipeline on the test data and fails the
+          ;; build if its counts differ from the reference ones.
+          (lambda* (#:key tests? #:allow-other-keys)
+            (when tests?
+              (let ((reference (canonicalize-path "../test-data.counts.orig")))
+                (mkdir "test-run")
+                (copy-file "../test-data.fastq.gz" "test-run/test-data.fastq.gz")
+                (with-directory-excursion "test-run"
+                  (invoke (string-append #$output "/bin/fast_trimming.sh")
+                          "-t" "0.1" "-is" "33"
+                          "-a1" "CCACCAGAGT" "-a2" "GCGCAGACCG"
+                          "-i" "test-data.fastq.gz")
+                  (invoke "diff" "test-data.counts" reference)))))))))
   (inputs (list bash-minimal coreutils cutadapt gawk gzip jq util-linux
                 vsearch zlib))
   (home-page "https://github.com/timothevanmeter/trimming")

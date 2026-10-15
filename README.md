@@ -13,10 +13,17 @@ Fast trimming is a script to trim NGS results to find a target portion of the re
 
 ### Installation and requirements
 
+#### Guix
+There is the possibility to install the package through guix. This insures that the build is exactly identical to the original one and that the code is ran into an identical environment whatever the OS you are using.
+ - install guix on your system
+ - clone the repo 
+```git clone https://github.com/timothevanmeter/trimming && cd trimming```
+- launch your trimming inside the guix-generated container:
+```guix time-machine -C channels.scm -- shell -C -f guix.scm -- fast_trimming.sh```
 
-**WARNING**: The script expects a Linux OS to run!\
-For example, the script relies heavily on **`bash`** and **`awk`**.
+#### Installing the dependencies
 
+Alternatively, you can install the different dependencies by yourself. However, this will not insure that the versions you installed are identical to that of the ones used here.
 
 In order to run the script you need the following requirements to be installed:
 - [cutadapt](https://cutadapt.readthedocs.io/en/stable/index.html)
@@ -26,11 +33,6 @@ In order to run the script you need the following requirements to be installed:
 this is only needed if you want to run the script directly on compressed files .fastq.gz
 - [jq](https://jqlang.org/)\
 this is only needed to produce a `.json` file saving the trimming metadata for each processed file. However, I *highly* recommend to keep it.
-
-
-
-#### Installing all the requirements
-
 
 ```
 #CUTADAPT
@@ -111,7 +113,6 @@ The number of concurrent job numbers can be increased (here 4 as indicated by `-
 
 
 ### License
-
 
 This project is licensed under the GNU General Public License v3.0 or later, see [LICENSE](LICENSE).\
 It includes third-party code under the MIT License, whose copyright notices are kept in the files themselves:
